@@ -9,7 +9,7 @@ app = FastAPI()
 def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
-@app.post("/compute/matrix") #заменить потом чтоб было поле для ввода и по красоте
+@app.post("/compute/matrix")
 def compute(request: Request, size: int = Form(...)):
     arr1 = []
     arr2 = []
@@ -34,7 +34,7 @@ def compute(request: Request, size: int = Form(...)):
             arr.append(sum)
         arr3.append(arr)
     return templates.TemplateResponse("index.html", {"request": request, "result": arr3})
-@app.post("/security/hash") #заменить потом чтоб было поле для ввода и по красоте
+@app.post("/security/hash")
 def hash_str(request: Request, size: int = Form(...),string:  str = Form(...)):
     res = string
     for i in range (size):
@@ -45,7 +45,7 @@ def hash_str(request: Request, size: int = Form(...),string:  str = Form(...)):
     }
     return templates.TemplateResponse("index.html", {"request": request, "result": result})
 
-@app.post("/reports/list")  # заменить потом чтоб было поле для ввода и по красоте
+@app.post("/reports/list")
 def generate_list(request: Request, size: int = Form(...)):
     huge_data = [
         {

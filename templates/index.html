@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <title>Генератор нагрузок</title>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; line-height: 1.6; }
+        .card { border: 1px solid #ddd; padding: 15px; margin-bottom: 20px; border-radius: 8px; box-shadow: 2px 2px 5px #eee; }
+        h2 { color: #333; margin-top: 0; }
+        input { padding: 8px; margin-right: 10px; border: 1px solid #ccc; border-radius: 4px; }
+        button { padding: 8px 15px; background: #007bff; color: white; border: none; border-radius: 4px; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        pre { background: #f4f4f4; padding: 10px; border-radius: 5px; overflow-x: auto; }
+    </style>
+</head>
+<body>
+    <h1>Управление нагрузками API</h1>
+
+    <div class="card">
+        <h2>1. Перемножение матриц (CPU/RAM)</h2>
+        <form action="/compute/matrix" method="post">
+            <input type="number" name="size" placeholder="Размер (напр. 100)" required>
+            <button type="submit">Запустить расчет</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>2. Хеширование строки (CPU Spike)</h2>
+        <form action="/security/hash" method="post">
+            <input type="text" name="string" placeholder="Текст" required>
+            <input type="number" name="size" placeholder="Сложность (напр. 1000)" required>
+            <button type="submit">Хешировать</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>3. Генерация списка (RAM Leak)</h2>
+        <form action="/reports/list" method="post">
+            <input type="number" name="size" placeholder="Кол-во объектов" required>
+            <button type="submit">Создать отчет</button>
+        </form>
+    </div>
+
+    <hr>
+
+    {% if result %}
+    <div class="card" style="background: #e9f7ef;">
+        <h2>Результат выполнения:</h2>
+        <pre>{{ result | tojson(indent=2) }}</pre>
+    </div>
+    {% endif %}
+
+</body>
+</html>

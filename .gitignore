@@ -1,0 +1,18 @@
+# Создайте файл .gitignore с таким содержимым:
+cat > .gitignore << EOF
+# IDE
+.idea/
+__pycache__/
+*.pyc
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Environment variables
+.env
+
+# Logs
+*.log
+EOF

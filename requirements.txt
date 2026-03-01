@@ -1,0 +1,5 @@
+uvicorn~=0.41.0
+fastapi~=0.134.0
+prometheus-fastapi-instrumentator
+jinja2
+python-multipart

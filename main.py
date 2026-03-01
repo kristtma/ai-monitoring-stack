@@ -2,13 +2,22 @@ from fastapi import FastAPI, Request, Form
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 import random
-
+from prometheus_fastapi_instrumentator import Instrumentator
+import uvicorn
 templates = Jinja2Templates(directory="templates")
 app = FastAPI()
+Instrumentator().instrument(app).expose(app)
 @app.get("/", response_class=HTMLResponse)
 def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
+@app.get("/health")
+async def health():
+    return {"status": "healthy"}
 
+# ДОБАВЬТЕ ЭТОТ ENDPOINT для healthcheck
+@app.get("/ping")
+async def ping():
+    return {"ping": "pong"}
 @app.post("/compute/matrix")
 def compute(request: Request, size: int = Form(...)):
     arr1 = []

@@ -1,3 +1,5 @@
+# prometheus_data/prometheus.yml
+
 # config file for prometheus
 
 # global config
@@ -5,6 +7,8 @@ global:
   scrape_interval: 15s
   scrape_timeout: 10s
   evaluation_interval: 15s
+  external_labels:
+    monitor: 'ai-monitoring-stack'
 alerting:
   alertmanagers:
   - follow_redirects: true
@@ -13,9 +17,13 @@ alerting:
     timeout: 10s
     api_version: v2
     static_configs:
-    - targets: []
+    - targets: ['alertmanager:9093']
+rule_files:
+  - "alert_rules.yml"
 scrape_configs:
 - job_name: prometheus
+  static_configs:
+    - targets: ['prometheus:9090']
   honor_timestamps: true
   scrape_interval: 15s
   scrape_timeout: 10s
@@ -23,11 +31,16 @@ scrape_configs:
   scheme: http
   follow_redirects: true
   enable_http2: true
-  static_configs:
-  - targets:
-    - localhost:9090
 - job_name: 'fastapi'
   scrape_interval: 10s
   metrics_path: /metrics
   static_configs:
     - targets: ['web:8000']
+- job_name: 'cadvisor'
+  scrape_interval: 15s
+  static_configs:
+    - targets: ['cadvisor:8080']
+- job_name: 'node-exporter'
+  scrape_interval: 15s
+  static_configs:
+    - targets: ['node-exporter:9100']

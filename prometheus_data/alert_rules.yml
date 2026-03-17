@@ -1,0 +1,116 @@
+# prometheus_data/alert_rules.yml
+# Правила алертов
+
+groups:
+  # Метрики FastAPI
+  - name: fastapi_app_alerts
+    interval: 30s
+    rules:
+      # Высокая загрузка CPU контейнера
+      - alert: HighCPUUsage
+        expr: |
+          avg(rate(container_cpu_usage_seconds_total{
+            container_label_com_docker_compose_service="web"
+          }[5m])) by (container_name) > 0.8
+        for: 2m
+        labels:
+          severity: warning
+          service: backend
+          team: ml-dev
+        annotations:
+          summary: "!!!Высокая загрузка CPU у backend!!!"
+          description: "Контейнер {{ $labels.container_name }} использует >80% CPU в течение 2 минут"
+          value: "{{ $value }}"
+
+      # Потенциальная утечка памяти
+      - alert: MemoryLeakSuspected
+        expr: |
+          container_memory_usage_bytes{
+            container_label_com_docker_compose_service="web"
+          } > 0.85 * container_spec_memory_limit_bytes{
+            container_label_com_docker_compose_service="web"
+          }
+        for: 5m
+        labels:
+          severity: critical
+          service: backend
+          team: ml-dev
+        annotations:
+          summary: "!!!Подозрение на утечку памяти!!!"
+          description: "Память контейнера {{ $labels.container_name }} >85% от лимита. Raw value: {{ $value }} bytes"
+          action: "Проверить endpoint /test/memory_leak и логи приложения"
+
+      # Высокий процент ошибок 5xx
+      - alert: HighErrorRate
+        expr: |
+          sum(rate(http_requests_total{
+            job="fastapi",
+            status=~"5.."
+          }[5m])) / sum(rate(http_requests_total{job="fastapi"}[5m])) > 0.1
+        for: 1m
+        labels:
+          severity: critical
+          service: backend
+          type: availability
+        annotations:
+          summary: "!!!Высокий процент ошибок 5xx!!!"
+          description: "Более 10% запросов завершаются с ошибкой. Ratio: {{ $value }}"
+
+  # Метрики инфраструктуры
+  - name: infrastructure_alerts
+    interval: 30s
+    rules:
+      # Контейнер упал
+      - alert: ContainerDown
+        expr: up{job="fastapi"} == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: backend
+        annotations:
+          summary: "!!!Контейнер backend не отвечает!!!"
+          description: "Prometheus не получает метрики от {{ $labels.instance }} более 30 секунд"
+          action: "docker-compose ps"
+
+      # Мало места на диске хоста
+      - alert: HostDiskSpaceLow
+        expr: |
+          (node_filesystem_avail_bytes{mountpoint="/"} / 
+           node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
+        for: 5m
+        labels:
+          severity: warning
+          component: node-exporter
+        annotations:
+          summary: "!!!Мало места на диске хоста!!!"
+          description: "Свободно менее 15% на корневом разделе. Available %: {{ $value }}"
+
+      # Высокая загрузка CPU хоста
+      - alert: HostHighCPU
+        expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
+        for: 3m
+        labels:
+          severity: warning
+          component: node-exporter
+        annotations:
+          summary: "!!!Высокая загрузка CPU хоста!!!"
+          description: "Загрузка CPU хоста {{ $labels.instance }} >85%. Value: {{ $value }}"
+
+  # Заготовки для ML
+  - name: ml_ready_alerts
+    interval: 60s
+    rules:
+      - alert: LatencySpike
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(http_request_duration_seconds_bucket{job="fastapi"}[5m])) by (le)
+          ) > 2
+        for: 2m
+        labels:
+          severity: info
+          service: backend
+          ml_candidate: "true"
+        annotations:
+          summary: "!!!Аномальный рост latency!!!"
+          description: "95-й перцентиль времени ответа >2с. Value: {{ $value }} seconds"
+          ml_note: "Этот алерт может быть обогащён ML-моделью"

@@ -1,6 +1,9 @@
-version: "3.8"
+# docker-compose.yml
+
+# version: "3.8"
 
 services:
+  # бэк
   web:
     build: .
     command: uvicorn main:app --reload --workers 1 --host 0.0.0.0 --port 8000
@@ -10,18 +13,36 @@ services:
       - "8002:8000"
     #depends_on:
       #- db
-
+    networks:
+      - monitoring
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+  
+  # сбор и хранение метрик
   prometheus:
     image: prom/prometheus
     container_name: prometheus
     ports:
       - 9090:9090
     volumes:
-      - ./prometheus_data/prometheus.yml:/etc/prometheus/prometheus.yml
+      - ./prometheus_data/prometheus.yml:/etc/prometheus/prometheus.ro
+      - ./prometheus_data/alert_rules.yml:/etc/prometheus/alert_rules.ro  # правила алертов отдельно с подключением через volume
+      - prometheus_data:/prometheus # volum для сохранения метрик между перезапусками контейнера
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'  # писать БД в смонтированный volume
+      - '--web.enable-lifecycle' # чтобы перезагружать конфиг через API без рестарта контейнера
+    networks:
+      - monitoring
+    depends_on:
+      - web
+    restart: unless-stopped
 
-
+  # визуализация метрик в дащбордах
   grafana:
     image: grafana/grafana
     container_name: grafana
@@ -29,6 +50,65 @@ services:
       - 3000:3000
     volumes:
       - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    # Заранее логин и пароль, для простоты регистрации
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin123
+      - GF_USERS_ALLOW_SIGN_UP=false
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+# Метрики контейнеров
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:latest
+    container_name: cadvisor
+    ports:
+      - "8080:8080"
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    privileged: true
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+# Экспортер метрик (загрузка ПК в целом)
+  node-exporter:
+    image: prom/node-exporter:latest
+    container_name: node-exporter
+    ports:
+      - "9100:9100"
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro
+    command:
+      - '--path.procfs=/host/proc'
+      - '--path.sysfs=/host/sys'
+      - '--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)'
+    networks:
+      - monitoring
+    restart: unless-stopped
+
+# Уведомления при алертах
+  alertmanager:
+    image: prom/alertmanager:latest
+    container_name: alertmanager
+    ports:
+      - "9093:9093"
+    volumes:
+      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    restart: unless-stopped
 
 volumes:
   prometheus_data:
@@ -43,8 +123,8 @@ volumes:
       o: bind
       type: none
       device: ./grafana_data
-  postgres_data:
 
 networks:
-  default:
-    name: ai_monitoring_fastapi
+  monitoring:
+    driver: bridge
+

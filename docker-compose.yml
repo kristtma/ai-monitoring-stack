@@ -103,7 +103,7 @@ services:
     ports:
       - "9093:9093"
     volumes:
-      - ./alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml
+      - ./prometheus_data/alertmanager.yml:/etc/alertmanager/alertmanager.yml
     networks:
       - monitoring
     depends_on:

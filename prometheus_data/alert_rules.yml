@@ -1,12 +1,9 @@
-# prometheus_data/alert_rules.yml
-# Правила алертов
-
 groups:
-  # Метрики FastAPI
+
   - name: fastapi_app_alerts
     interval: 30s
     rules:
-      # Высокая загрузка CPU контейнера
+
       - alert: HighCPUUsage
         expr: |
           avg(rate(container_cpu_usage_seconds_total{
@@ -22,7 +19,6 @@ groups:
           description: "Контейнер {{ $labels.container_name }} использует >80% CPU в течение 2 минут"
           value: "{{ $value }}"
 
-      # Потенциальная утечка памяти
       - alert: MemoryLeakSuspected
         expr: |
           container_memory_usage_bytes{
@@ -40,7 +36,6 @@ groups:
           description: "Память контейнера {{ $labels.container_name }} >85% от лимита. Raw value: {{ $value }} bytes"
           action: "Проверить endpoint /test/memory_leak и логи приложения"
 
-      # Высокий процент ошибок 5xx
       - alert: HighErrorRate
         expr: |
           sum(rate(http_requests_total{
@@ -56,11 +51,83 @@ groups:
           summary: "!!!Высокий процент ошибок 5xx!!!"
           description: "Более 10% запросов завершаются с ошибкой. Ratio: {{ $value }}"
 
-  # Метрики инфраструктуры
+  - name: database_alerts
+    interval: 30s
+    rules:
+
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "!!!PostgreSQL не отвечает!!!"
+          description: "postgres_exporter не может подключиться к базе данных {{ $labels.instance }}"
+          action: "docker-compose ps db"
+
+      - alert: TooManyConnections
+        expr: |
+          pg_stat_activity_count > 80
+        for: 2m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "!!!Много активных подключений к PostgreSQL!!!"
+          description: "Количество подключений: {{ $value }}. Лимит по умолчанию: 100"
+
+      - alert: DatabaseSizeGrowing
+        expr: |
+          pg_database_size_bytes{datname="monitoring_db"} > 500 * 1024 * 1024
+        for: 5m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "!!!База данных превысила 500MB!!!"
+          description: "Текущий размер monitoring_db: {{ $value | humanize1024 }}B"
+
+      - alert: LongRunningQueries
+        expr: |
+          pg_stat_activity_max_tx_duration{state="active"} > 300
+        for: 1m
+        labels:
+          severity: warning
+          service: database
+        annotations:
+          summary: "!!!Обнаружены медленные запросы (>5 минут)!!!"
+          description: "Самый долгий активный запрос выполняется {{ $value | humanizeDuration }}"
+
+  - name: frontend_alerts
+    interval: 30s
+    rules:
+
+      - alert: FrontendDown
+        expr: nginx_up == 0
+        for: 30s
+        labels:
+          severity: critical
+          service: frontend
+        annotations:
+          summary: "!!!Frontend (nginx) не отвечает!!!"
+          description: "nginx-exporter потерял связь с {{ $labels.instance }}"
+          action: "docker-compose ps frontend"
+
+      - alert: HighActiveConnections
+        expr: nginx_connections_active > 200
+        for: 2m
+        labels:
+          severity: warning
+          service: frontend
+        annotations:
+          summary: "!!!Высокая нагрузка на Frontend!!!"
+          description: "Активных соединений nginx: {{ $value }}"
+
   - name: infrastructure_alerts
     interval: 30s
     rules:
-      # Контейнер упал
+
       - alert: ContainerDown
         expr: up{job="fastapi"} == 0
         for: 30s
@@ -72,10 +139,9 @@ groups:
           description: "Prometheus не получает метрики от {{ $labels.instance }} более 30 секунд"
           action: "docker-compose ps"
 
-      # Мало места на диске хоста
       - alert: HostDiskSpaceLow
         expr: |
-          (node_filesystem_avail_bytes{mountpoint="/"} / 
+          (node_filesystem_avail_bytes{mountpoint="/"} /
            node_filesystem_size_bytes{mountpoint="/"}) * 100 < 15
         for: 5m
         labels:
@@ -85,7 +151,6 @@ groups:
           summary: "!!!Мало места на диске хоста!!!"
           description: "Свободно менее 15% на корневом разделе. Available %: {{ $value }}"
 
-      # Высокая загрузка CPU хоста
       - alert: HostHighCPU
         expr: 100 - (avg by(instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 85
         for: 3m
@@ -96,13 +161,85 @@ groups:
           summary: "!!!Высокая загрузка CPU хоста!!!"
           description: "Загрузка CPU хоста {{ $labels.instance }} >85%. Value: {{ $value }}"
 
-  # Заготовки для ML
-  - name: ml_ready_alerts
+  - name: ml_anomaly_alerts
     interval: 60s
     rules:
+
+      - alert: MLAnomalyCPU
+        expr: ml_anomaly_detected{metric_name="cpu_usage"} == 1
+        for: 2m
+        labels:
+          severity: warning
+          service: ml-service
+          source: isolation_forest
+        annotations:
+          summary: "🤖 ML: Аномальное поведение CPU"
+          description: "IsolationForest зафиксировал аномалию в загрузке CPU. Score: {{ $value }}"
+          action: "Проверить /predictions на ml-service:8500"
+
+      - alert: MLAnomalyMemory
+        expr: ml_anomaly_detected{metric_name="memory_usage"} == 1
+        for: 2m
+        labels:
+          severity: warning
+          service: ml-service
+          source: isolation_forest
+        annotations:
+          summary: "🤖 ML: Аномальное потребление памяти"
+          description: "IsolationForest зафиксировал аномалию в использовании RAM."
+          action: "Проверить /predictions на ml-service:8500"
+
+      - alert: MLAnomalyRequestRate
+        expr: ml_anomaly_detected{metric_name="request_rate"} == 1
+        for: 1m
+        labels:
+          severity: warning
+          service: ml-service
+          source: isolation_forest
+        annotations:
+          summary: "🤖 ML: Аномальный поток запросов"
+          description: "IsolationForest зафиксировал аномалию в RPS backend. Возможна атака или сбой."
+
+      - alert: MLDiskFullPrediction
+        expr: ml_disk_hours_remaining < 4
+        for: 5m
+        labels:
+          severity: critical
+          service: ml-service
+          source: linear_regression
+        annotations:
+          summary: "🤖 ML: Через {{ $value | humanizeDuration }} диск будет заполнен!"
+          description: "Линейная регрессия по тренду использования диска предсказывает заполнение."
+          action: "Освободить место или увеличить хранилище"
+
+      - alert: MLDiskFullWarning
+        expr: ml_disk_hours_remaining < 12 and ml_disk_hours_remaining >= 4
+        for: 5m
+        labels:
+          severity: warning
+          service: ml-service
+          source: linear_regression
+        annotations:
+          summary: "🤖 ML: Место на диске закончится примерно через {{ $value }} ч"
+          description: "Ранее предупреждение от ML. Ещё есть время принять меры."
+
+      - alert: MLServiceDown
+        expr: up{job="ml-service"} == 0
+        for: 1m
+        labels:
+          severity: warning
+          service: ml-service
+        annotations:
+          summary: "🤖 ML-сервис аналитики недоступен"
+          description: "Prometheus не получает метрики от ml-service. AI-аналитика отключена."
+
+  - name: ml_enriched_alerts
+    interval: 60s
+    rules:
+
       - alert: LatencySpike
         expr: |
-          histogram_quantile(0.95, 
+          histogram_quantile(0.95,
             sum(rate(http_request_duration_seconds_bucket{job="fastapi"}[5m])) by (le)
           ) > 2
         for: 2m
@@ -112,5 +249,5 @@ groups:
           ml_candidate: "true"
         annotations:
           summary: "!!!Аномальный рост latency!!!"
-          description: "95-й перцентиль времени ответа >2с. Value: {{ $value }} seconds"
-          ml_note: "Этот алерт может быть обогащён ML-моделью"
+          description: "95-й перцентиль времени ответа >2с. Value: {{ $value }} seconds. ML score: см. ml_anomaly_score{metric_name='response_latency_p95'}"
+          ml_note: "Алерт обогащён ML-моделью IsolationForest"

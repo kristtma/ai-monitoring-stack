@@ -1,9 +1,5 @@
-# docker-compose.yml
-
-# version: "3.8"
-
 services:
-  # бэк
+
   web:
     build: .
     command: uvicorn main:app --reload --workers 1 --host 0.0.0.0 --port 8000
@@ -11,8 +7,10 @@ services:
       - ./:/usr/src/app/
     ports:
       - "8002:8000"
-    #depends_on:
-      #- db
+    depends_on:
+      - db
+    environment:
+      - DATABASE_URL=postgresql://monitoring:monitoring@db:5432/monitoring_db
     networks:
       - monitoring
     healthcheck:
@@ -21,38 +19,112 @@ services:
       timeout: 10s
       retries: 3
     restart: unless-stopped
-  
-  # сбор и хранение метрик
+
+  db:
+    image: postgres:16-alpine
+    container_name: postgres_db
+    environment:
+      POSTGRES_USER: monitoring
+      POSTGRES_PASSWORD: monitoring
+      POSTGRES_DB: monitoring_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - monitoring
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U monitoring -d monitoring_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:latest
+    container_name: postgres_exporter
+    environment:
+      DATA_SOURCE_NAME: "postgresql://monitoring:monitoring@db:5432/monitoring_db?sslmode=disable"
+    ports:
+      - "9187:9187"
+    networks:
+      - monitoring
+    depends_on:
+      - db
+    restart: unless-stopped
+
+  frontend:
+    image: nginx:alpine
+    container_name: frontend
+    ports:
+      - "80:80"
+    volumes:
+      - ./frontend/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./frontend/html:/usr/share/nginx/html:ro
+    networks:
+      - monitoring
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:latest
+    container_name: nginx_exporter
+    command:
+      - --nginx.scrape-uri=http://frontend/stub_status
+    ports:
+      - "9113:9113"
+    networks:
+      - monitoring
+    depends_on:
+      - frontend
+    restart: unless-stopped
+
+  ml-service:
+    build:
+      context: ./ml_service
+      dockerfile: Dockerfile
+    container_name: ml_service
+    ports:
+      - "8500:8500"
+    environment:
+      - PROMETHEUS_URL=http://prometheus:9090
+    networks:
+      - monitoring
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
   prometheus:
     image: prom/prometheus
     container_name: prometheus
     ports:
-      - 9090:9090
+      - "9090:9090"
     volumes:
       - ./prometheus_data/prometheus.yml:/etc/prometheus/prometheus.yml
       - ./prometheus_data/alert_rules.yml:/etc/prometheus/alert_rules.yml
-      - prometheus_data:/prometheus 
+      - prometheus_storage:/prometheus
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
-      - '--storage.tsdb.path=/prometheus'  # писать БД в смонтированный volume
-      - '--web.enable-lifecycle' # чтобы перезагружать конфиг через API без рестарта контейнера
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.enable-lifecycle'
     networks:
       - monitoring
     depends_on:
       - web
     restart: unless-stopped
 
-  # визуализация метрик в дащбордах
   grafana:
     image: grafana/grafana
     container_name: grafana
     ports:
       - "3000:3000"
     volumes:
-      - grafana_data:/var/lib/grafana
-      
+      - grafana_storage:/var/lib/grafana
       - ./grafana_data/provisioning:/etc/grafana/provisioning
-      
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin123
@@ -63,7 +135,6 @@ services:
       - prometheus
     restart: unless-stopped
 
-# Метрики контейнеров
   cadvisor:
     image: gcr.io/cadvisor/cadvisor:latest
     container_name: cadvisor
@@ -79,7 +150,6 @@ services:
       - monitoring
     restart: unless-stopped
 
-# Экспортер метрик (загрузка ПК в целом)
   node-exporter:
     image: prom/node-exporter:latest
     container_name: node-exporter
@@ -97,7 +167,6 @@ services:
       - monitoring
     restart: unless-stopped
 
-# Уведомления при алертах
   alertmanager:
     image: prom/alertmanager:latest
     container_name: alertmanager
@@ -111,8 +180,6 @@ services:
       - prometheus
     restart: unless-stopped
 
-
-  # Дашборд инцидентов
   alert-dashboard:
     build: .
     container_name: alert-dashboard
@@ -129,6 +196,9 @@ services:
       - alertmanager
 
 volumes:
+  prometheus_storage:
+  grafana_storage:
+  postgres_data:
   prometheus_data:
     driver: local
     driver_opts:
@@ -145,4 +215,3 @@ volumes:
 networks:
   monitoring:
     driver: bridge
-
